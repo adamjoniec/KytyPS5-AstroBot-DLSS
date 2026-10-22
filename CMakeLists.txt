@@ -754,6 +754,21 @@ add_executable(game_patch_filter_tests EXCLUDE_FROM_ALL
 )
 target_include_directories(game_patch_filter_tests PRIVATE ${inc_headers})
 
+# DLSS frame generation (graphics/host_gpu/renderer/frameGenDlssg.cpp): NVIDIA Streamline's headers
+# when unpacked under _Build/deps/streamline/sdk (CI: .github/workflows/build.yml). Windows only.
+if(WIN32)
+	set(KYTY_STREAMLINE_SDK "${CMAKE_CURRENT_SOURCE_DIR}/_Build/deps/streamline/sdk" CACHE PATH
+	    "NVIDIA Streamline SDK headers for DLSS frame generation and Super Resolution")
+	if(EXISTS "${KYTY_STREAMLINE_SDK}/include/sl.h")
+		set_source_files_properties("${KYTY_SOURCE_DIR}/graphics/host_gpu/renderer/frameGenDlssg.cpp"
+		    PROPERTIES INCLUDE_DIRECTORIES "${KYTY_STREAMLINE_SDK}/include"
+		               COMPILE_DEFINITIONS KYTY_FRAMEGEN_STREAMLINE=1)
+		message(STATUS "DLSS frame generation and Super Resolution: Streamline headers from ${KYTY_STREAMLINE_SDK}")
+		set_source_files_properties("${KYTY_SOURCE_DIR}/loader/gamePatch.cpp"
+		    PROPERTIES COMPILE_DEFINITIONS KYTY_DLSS_OUTPUT_PATCH=1)
+	endif()
+endif()
+
 # u59-preset.json (common/u59Preset.h): parsing and lookup for the launcher, the emulator's startup
 # warnings, the shipped tools/u59-preset.json, and the code defaults that make it optional.
 add_executable(u59_preset_tests EXCLUDE_FROM_ALL
@@ -828,6 +843,10 @@ add_executable(kyty_pipeline_list EXCLUDE_FROM_ALL
 )
 target_link_libraries(kyty_pipeline_list xxhash libzstd_static nlohmann_json::nlohmann_json)
 target_include_directories(kyty_pipeline_list PRIVATE ${inc_headers})
+
+# kyty_shader_stats: translates a shader journal offline with both KYTY_FLOAT_PROFILE settings and
+# reports SPIR-V sizes (tools/shader-stats/kytyShaderStats.cpp). Built on request only.
+add_kyty_full_emulator_test(kyty_shader_stats "${CMAKE_CURRENT_SOURCE_DIR}/tools/shader-stats/kytyShaderStats.cpp")
 
 add_executable(shader_code_snapshot_tests EXCLUDE_FROM_ALL "${KYTY_TESTS_DIR}/ShaderCodeSnapshotTests.cpp")
 target_link_libraries(shader_code_snapshot_tests xxhash)
@@ -1102,6 +1121,14 @@ target_include_directories(binding_path_tests PRIVATE ${inc_headers})
 
 # CP recorder command stream (renderer/commandStream.h): ring, encoder, replay and verify mode,
 # without a Vulkan device (KYTY_CP_RECORDER).
+add_executable(astro_taa_geometry_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/AstroTaaGeometryTests.cpp")
+target_include_directories(astro_taa_geometry_tests PRIVATE "${KYTY_SOURCE_DIR}")
+
+add_executable(astro_dlss_output_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/AstroDlssOutputTests.cpp")
+target_include_directories(astro_dlss_output_tests PRIVATE "${KYTY_SOURCE_DIR}")
+
 add_executable(cp_recorder_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/CpRecorderTests.cpp"
 	"${KYTY_SOURCE_DIR}/graphics/host_gpu/renderer/commandStream.cpp"
@@ -1217,6 +1244,8 @@ if(BUILD_TESTING)
 	add_test(NAME repeat_trace COMMAND $<TARGET_FILE:repeat_trace_tests>)
 	add_test(NAME binding_path COMMAND $<TARGET_FILE:binding_path_tests>)
 	add_test(NAME cp_recorder COMMAND $<TARGET_FILE:cp_recorder_tests>)
+	add_test(NAME astro_taa_geometry COMMAND $<TARGET_FILE:astro_taa_geometry_tests>)
+	add_test(NAME astro_dlss_output COMMAND $<TARGET_FILE:astro_dlss_output_tests>)
 	add_test(NAME cp_sequencer COMMAND $<TARGET_FILE:cp_sequencer_tests>)
 	add_test(NAME image_exact_lookup
 	         COMMAND $<TARGET_FILE:shader_recompiler_compute_tests> --image-exact-lookup-only)
@@ -2484,6 +2513,8 @@ if(BUILD_TESTING)
 		resource_tracking_tests
 		binding_path_tests
 		cp_recorder_tests
+		astro_taa_geometry_tests
+		astro_dlss_output_tests
 		event_queue_lifetime_tests
 		kernel_file_system_tests
 		sync_on_address_tests

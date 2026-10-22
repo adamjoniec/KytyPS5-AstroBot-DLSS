@@ -1,3 +1,5 @@
+#include "graphics/host_gpu/renderer/frameGenDlssg.h"
+#include "graphics/host_gpu/renderer/fgDiscovery.h"
 #include "graphics/host_gpu/renderer/renderDraw.h"
 
 #include "graphics/host_gpu/renderer/drawPrep/ownedCounters.h"
@@ -3989,6 +3991,30 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 		PrepareGraphicsBindings(stages, std::span {state.color_info, state.color_count},
 		                        m_run_active);
 	}
+	if (FrameGen::Enabled()) {
+		std::array<const PreparedBindings*, 3> fg_vertex {};
+		uint32_t                               fg_vertex_count = 0;
+		for (uint32_t i = 0; i < vertex_stages.size() && fg_vertex_count < 3; i++) {
+			fg_vertex[fg_vertex_count++] = &bindings.vertex[i];
+		}
+		const auto* ps_program = state.ps_input_info.stage.program;
+		FrameGen::OnDraw(state.ps_active && ps_program != nullptr ? ps_program->shader_hash : 0,
+		                 state.ps_active && bindings.pixel ? &*bindings.pixel : nullptr,
+		                 std::span {fg_vertex.data(), fg_vertex_count},
+		                 std::span {state.color_info, state.color_count}, state.depth_info);
+	}
+	if (FgDiscovery::Recording()) [[unlikely]] {
+		std::array<FgDiscovery::DrawStage, 4> fg_stages {};
+		uint32_t                              fg_count = 0;
+		for (uint32_t i = 0; i < vertex_stages.size() && fg_count < 3; i++) {
+			fg_stages[fg_count++] = {'V', &state.vertex_info[i].stage, &bindings.vertex[i]};
+		}
+		if (state.ps_active && bindings.pixel) {
+			fg_stages[fg_count++] = {'P', &state.ps_input_info.stage, &*bindings.pixel};
+		}
+		FgDiscovery::OnDraw(std::span {fg_stages.data(), fg_count},
+		                    std::span {state.color_info, state.color_count}, state.depth_info);
+	}
 	PreparedVertexBuffers vertex_bindings;
 	PreparedIndexBuffer   index_binding;
 	if (!mesh_active) {
@@ -4285,6 +4311,33 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 	}
 	CommitStats::StepMark(CommitStats::Step::Acquire);
 	CommitStats::Mark(CommitStats::Phase::AcquireTargets);
+
+	// Try SR before recording any of the original TAA draw's graphics state.
+	// Target acquisition above still establishes cache write ownership for both
+	// outputs; SR fills rt0 and seeds rt1 without executing the TAA shader.
+	const auto* taa_program = state.ps_active ? state.ps_input_info.stage.program : nullptr;
+	if (!mesh_active && indirect == nullptr && taa_program != nullptr &&
+	    taa_program->shader_hash == FrameGen::TaaPixelShader) {
+		const auto resolved = FrameGen::ResolveTaa(
+		    buffer, taa_program->shader_hash, bindings.pixel ? &*bindings.pixel : nullptr, colors_span);
+		if (resolved != FrameGen::TaaResolve::Fallback) {
+			// Native compute commands disturb pipelines, descriptors and dynamic state.
+			// Neither a replacement nor a failed evaluation may seed/reuse a draw run.
+			m_run.valid        = false;
+			m_run_active       = false;
+			m_run_verify       = false;
+			m_run_targets_kept = false;
+			for (auto& record: m_run_kept)
+				record.valid = false;
+			m_dynamic_state.valid = false;
+			if (resolved == FrameGen::TaaResolve::Replaced) return;
+			// An SDK failure may have transitioned the output to GENERAL. Restore
+			// attachments before the normal path rebinds and executes the fallback.
+			rendering = AcquireRenderTargets(buffer, state.color_info, state.color_count,
+			                                 state.depth_info, feedback_aspects, stages,
+			                                 bounded ? &written : nullptr);
+		}
+	}
 
 	// Resource preparation above may synchronously finish and restart the scheduler. From this
 	// point onward, every operation targets the current command buffer and cannot touch guest

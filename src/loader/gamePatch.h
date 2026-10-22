@@ -17,6 +17,8 @@ bool Apply(const std::filesystem::path& plan_path, Program* main_program,
 bool ApplyPending(Program* program);
 // Built-in game fixes that need no patch file (KYTY_ASTRO_CB_SCALE). Main program, before it runs.
 void ApplyBuiltin(Program* main_program);
+// Called while an executable segment is writable, before instruction rewriting.
+void ApplyAstroDlssOutput(Program* program, uint64_t address, uint64_t size);
 void Clear();
 
 } // namespace GamePatch
