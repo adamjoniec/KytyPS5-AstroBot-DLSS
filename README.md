@@ -153,6 +153,29 @@ the Vulkan/SPIR-V validation rules.
 - A Vulkan 1.3-capable GPU with current drivers (on macOS, Vulkan is provided by the bundled
   MoltenVK)
 
+### Optimized Windows build
+
+For the optimized Astro Bot build, run `compile-windows-opimized.bat` from any
+directory. It uses LLVM 22.1.3 in `_Build/tools/llvm22`, Qt 6.10.3 in
+`_Build/tools/Qt`, glslang in `_Build/tools/glslang/bin`, and Python in
+`_Build/tools/python/Scripts`. Visual Studio C++ build tools supply the Windows
+SDK, CMake, and Ninja. The first build downloads submodules and Streamline
+v2.14.1 headers and requires internet access.
+
+The script builds Release with the checked-in `u59-int21-1.profdata` profile,
+emulator LTO, per-draw diagnostics disabled, and native CPU tuning. It runs the
+Astro Bot geometry and output tests and installs the launcher, emulator, Qt
+runtime, and tuned preset to `_Build/windows-optimized/install`. It temporarily
+maps `C:\kyty-src19` to this checkout for the profile's source paths and restores
+any existing junction afterward; avoid running another build using that path at
+the same time. Streamline runtime DLL setup is described in
+[the DLSS guide](docs/ASTRO-BOT-DLSSG.md).
+
+Use `compile-windows-opimized.bat -Jobs 4` to reduce memory use, or
+`compile-windows-opimized.bat -March x86-64-v3` for a build that can be shared
+with other supported x86-64-v3 PCs. The default `native` build targets the CPU
+of the machine doing the compilation.
+
 ### Build requirements (Windows)
 
 - Git
